@@ -94,6 +94,12 @@ class SpoolsViewModel(
             }.collect { (url, key) ->
                 val hasCredentials = url.isNotBlank() && key.isNotBlank()
                 val hadCredentials = _uiState.value.hasCredentials
+                val previousUrl = _uiState.value.serverUrl
+                val previousKey = _uiState.value.apiKey
+                val isServerChanged = previousUrl.isNotBlank() && previousUrl != url
+                val isKeyChanged = previousKey.isNotBlank() && previousKey != key
+                val isCredentialChanged = isServerChanged || isKeyChanged
+
                 _uiState.update {
                     it.copy(
                         serverUrl = url,
@@ -104,9 +110,12 @@ class SpoolsViewModel(
                 if (hasCredentials) {
                     val serverKey = HomePrintersCacheRepository.cacheServerKey(url)
                     val shouldNetworkLoad =
-                        !hadCredentials || lastNetworkLoadServerKey != serverKey
+                        !hadCredentials || isCredentialChanged || lastNetworkLoadServerKey != serverKey
                     viewModelScope.launch {
-                        hydrateFromDiskCache(url)
+                        if (isCredentialChanged) {
+                            fetchJob?.cancel()
+                        }
+                        hydrateFromDiskCache(url, serverChanged = isServerChanged)
                         if (shouldNetworkLoad && serverKey != null) {
                             lastNetworkLoadServerKey = serverKey
                             loadSpools(showLoading = _uiState.value.spools.isEmpty())
@@ -119,19 +128,33 @@ class SpoolsViewModel(
         }
     }
 
-    private suspend fun hydrateFromDiskCache(serverUrl: String) {
-        val snapshot = spoolsCacheRepository.load(serverUrl) ?: return
-        _uiState.update {
-            it.copy(
-                spools = snapshot.spools,
-                printerFilamentActivityById = snapshot.printerFilamentActivityById,
-                lastUpdatedAtMillis = snapshot.lastUpdatedAtMillis,
-                hasCompletedLoad = true,
-                isLoading = false,
-                error = null,
-                refreshError = null,
-                isStaleCachedData = true,
-            )
+    private suspend fun hydrateFromDiskCache(serverUrl: String, serverChanged: Boolean = false) {
+        val snapshot = spoolsCacheRepository.load(serverUrl)
+        if (snapshot != null) {
+            _uiState.update {
+                it.copy(
+                    spools = snapshot.spools,
+                    printerFilamentActivityById = snapshot.printerFilamentActivityById,
+                    lastUpdatedAtMillis = snapshot.lastUpdatedAtMillis,
+                    hasCompletedLoad = true,
+                    isLoading = false,
+                    error = null,
+                    refreshError = null,
+                    isStaleCachedData = true,
+                )
+            }
+        } else if (serverChanged) {
+            _uiState.update {
+                it.copy(
+                    spools = emptyList(),
+                    printerFilamentActivityById = emptyMap(),
+                    lastUpdatedAtMillis = null,
+                    hasCompletedLoad = false,
+                    error = null,
+                    refreshError = null,
+                    isStaleCachedData = false,
+                )
+            }
         }
     }
 

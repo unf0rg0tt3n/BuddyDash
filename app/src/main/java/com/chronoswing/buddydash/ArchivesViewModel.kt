@@ -104,6 +104,12 @@ class ArchivesViewModel(
             }.collect { (url, key, cameraToken) ->
                 val hasCredentials = url.isNotBlank() && key.isNotBlank()
                 val wasReady = _uiState.value.settingsReady
+                val previousUrl = _uiState.value.serverUrl
+                val previousKey = _uiState.value.apiKey
+                val isServerChanged = previousUrl.isNotBlank() && previousUrl != url
+                val isKeyChanged = previousKey.isNotBlank() && previousKey != key
+                val isCredentialChanged = isServerChanged || isKeyChanged
+
                 _uiState.update {
                     it.copy(
                         serverUrl = url,
@@ -117,10 +123,13 @@ class ArchivesViewModel(
                 if (hasCredentials) {
                     val filterId = _uiState.value.printerFilter?.printerId
                     val serverKey = HomePrintersCacheRepository.cacheServerKey(url)
-                    val loadKey = "$serverKey|$filterId"
-                    val shouldNetworkLoad = !wasReady || lastNetworkLoadKey != loadKey
+                    val loadKey = "$serverKey|$filterId|${key.hashCode()}"
+                    val shouldNetworkLoad = !wasReady || isCredentialChanged || lastNetworkLoadKey != loadKey
                     viewModelScope.launch {
-                        hydrateFromDiskCache(url, filterId)
+                        if (isCredentialChanged) {
+                            fetchJob?.cancel()
+                        }
+                        hydrateFromDiskCache(url, filterId, serverChanged = isServerChanged)
                         if (shouldNetworkLoad && serverKey != null) {
                             lastNetworkLoadKey = loadKey
                             loadArchives(showLoading = _uiState.value.archives.isEmpty())
@@ -139,24 +148,36 @@ class ArchivesViewModel(
         }
     }
 
-    private suspend fun hydrateFromDiskCache(serverUrl: String, printerFilterId: Int?) {
+    private suspend fun hydrateFromDiskCache(serverUrl: String, printerFilterId: Int?, serverChanged: Boolean = false) {
         val snapshot = archivesCacheRepository.load(serverUrl, printerFilterId)
         logArchivesListCacheRead(
             hit = snapshot != null,
             count = snapshot?.archives?.size ?: 0,
             printerFilterId = printerFilterId,
         )
-        if (snapshot == null) return
-        _uiState.update {
-            it.copy(
-                archives = snapshot.archives,
-                lastUpdatedAtMillis = snapshot.lastUpdatedAtMillis,
-                hasCompletedLoad = true,
-                isLoading = false,
-                error = null,
-                refreshError = null,
-                isStaleCachedData = true,
-            )
+        if (snapshot != null) {
+            _uiState.update {
+                it.copy(
+                    archives = snapshot.archives,
+                    lastUpdatedAtMillis = snapshot.lastUpdatedAtMillis,
+                    hasCompletedLoad = true,
+                    isLoading = false,
+                    error = null,
+                    refreshError = null,
+                    isStaleCachedData = true,
+                )
+            }
+        } else if (serverChanged) {
+            _uiState.update {
+                it.copy(
+                    archives = emptyList(),
+                    lastUpdatedAtMillis = null,
+                    hasCompletedLoad = false,
+                    error = null,
+                    refreshError = null,
+                    isStaleCachedData = false,
+                )
+            }
         }
     }
 
