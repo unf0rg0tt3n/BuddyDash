@@ -238,26 +238,21 @@ class SettingsRepository(private val context: Context) {
     }
 
     private suspend fun persistConnectionSettings(settings: ValidatedConnectionSettings) {
-        if (encryptedStore.isAvailable) {
-            val saved = encryptedStore.saveCredentials(
-                settings.serverUrl,
-                settings.apiKey,
-                settings.cameraToken,
-            )
-            if (!saved) throw IllegalStateException("Failed to save encrypted credentials")
-            credentialVersion.value++
-            runCatching {
-                context.settingsDataStore.edit { preferences ->
-                    preferences.remove(SERVER_URL_KEY)
-                    preferences.remove(API_KEY_KEY)
-                    preferences.remove(CAMERA_TOKEN_KEY)
-                }
-            }
-        } else {
+        if (!encryptedStore.isAvailable) {
+            throw IllegalStateException("Secure encrypted credential storage is not available on this device")
+        }
+        val saved = encryptedStore.saveCredentials(
+            settings.serverUrl,
+            settings.apiKey,
+            settings.cameraToken,
+        )
+        if (!saved) throw IllegalStateException("Failed to save encrypted credentials")
+        credentialVersion.value++
+        runCatching {
             context.settingsDataStore.edit { preferences ->
-                preferences[SERVER_URL_KEY] = settings.serverUrl
-                preferences[API_KEY_KEY] = settings.apiKey
-                preferences[CAMERA_TOKEN_KEY] = settings.cameraToken
+                preferences.remove(SERVER_URL_KEY)
+                preferences.remove(API_KEY_KEY)
+                preferences.remove(CAMERA_TOKEN_KEY)
             }
         }
     }
