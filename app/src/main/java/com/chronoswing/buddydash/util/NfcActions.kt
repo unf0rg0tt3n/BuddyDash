@@ -47,7 +47,47 @@ sealed class NfcActionOutcome {
     // finish
     data object FinishedWithPowerOff : NfcActionOutcome() { override val tier = Tier.Success }
     data object FinishedPlateClear : NfcActionOutcome() { override val tier = Tier.Success }
+    data object FinishedPowerOff : NfcActionOutcome() { override val tier = Tier.Success }
     data object PrinterBusyFinishSkipped : NfcActionOutcome() { override val tier = Tier.Warning }
+}
+
+// ── Finish workflow evaluation ─────────────────────────────────────
+
+data class FinishWorkflowConfig(
+    val clearPlate: Boolean = true,
+    val powerOff: Boolean = true,
+)
+
+enum class FinishActionResult {
+    Success,
+    AlreadyDone,
+    Failed,
+    Skipped,
+}
+
+fun evaluateFinishOutcome(
+    clearPlateResult: FinishActionResult,
+    powerOffResult: FinishActionResult,
+    config: FinishWorkflowConfig,
+): NfcActionOutcome {
+    if (config.clearPlate && clearPlateResult == FinishActionResult.Failed) {
+        return NfcActionOutcome.ApiFailed
+    }
+    if (config.powerOff && powerOffResult == FinishActionResult.Failed) {
+        return NfcActionOutcome.ApiFailed
+    }
+
+    val didPowerOff = powerOffResult == FinishActionResult.Success
+    val didClearPlate = clearPlateResult == FinishActionResult.Success ||
+        clearPlateResult == FinishActionResult.AlreadyDone
+
+    return when {
+        config.powerOff && didPowerOff && config.clearPlate -> NfcActionOutcome.FinishedWithPowerOff
+        config.powerOff && didPowerOff && !config.clearPlate -> NfcActionOutcome.FinishedPowerOff
+        config.clearPlate && didClearPlate -> NfcActionOutcome.FinishedPlateClear
+        config.powerOff && powerOffResult == FinishActionResult.AlreadyDone && config.clearPlate -> NfcActionOutcome.FinishedPlateClear
+        else -> NfcActionOutcome.FinishedPlateClear
+    }
 }
 
 // ── Deep-link parsing ─────────────────────────────────────────────

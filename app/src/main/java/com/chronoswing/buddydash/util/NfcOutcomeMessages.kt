@@ -27,6 +27,8 @@ fun resolveNfcActionOutcomeMessage(context: Context, outcome: NfcActionOutcome):
             context.getString(R.string.nfc_finished_power_off)
         NfcActionOutcome.FinishedPlateClear ->
             context.getString(R.string.nfc_finished_plate_clear)
+        NfcActionOutcome.FinishedPowerOff ->
+            context.getString(R.string.nfc_finished_power_off_only)
         NfcActionOutcome.PrinterBusyFinishSkipped ->
             context.getString(R.string.nfc_printer_busy_finish)
         NfcActionOutcome.InvalidLink ->
