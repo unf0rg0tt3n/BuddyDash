@@ -84,22 +84,21 @@ internal fun parseNfcFromUriString(raw: String): NfcDeepLink? {
 
 // ── Safety helpers ─────────────────────────────────────────────────
 
-private val UNSAFE_POWER_OFF_STATES = setOf(
-    "RUNNING", "PAUSE", "PREPARE", "PREPARING", "SLICING",
-    "CALIBRATING", "BUSY", "INITIALIZING",
-    "HOMING", "HOME", "AUTO_HOME", "AUTOHOMING", "G28", "G28ING",
+private val SAFE_POWER_OFF_STATES = setOf(
+    "IDLE", "FINISH", "SUCCESS", "FAILED", "CANCEL", "CANCELLED", "STOP", "STOPPED",
 )
 
 /**
  * True when the printer is safe to power off.
+ * Uses a strict allowlist of confirmed idle/completed states.
  * When in doubt, returns false.
  */
 fun isPrinterSafeToPowerOff(status: PrinterStatus?): Boolean {
     if (status == null) return false
     if (!status.connected) return false
     if (status.hasActiveFault()) return false
-    val raw = status.rawState?.uppercase() ?: return false
-    if (raw in UNSAFE_POWER_OFF_STATES) return false
+    val raw = status.rawState?.uppercase()?.trim() ?: return false
+    if (raw !in SAFE_POWER_OFF_STATES) return false
     if (raw.contains("HEAT") || raw.contains("COOL")) return false
     if (raw.contains("LOAD") || raw.contains("UNLOAD")) return false
     if (raw.contains("UPDATE") || raw.contains("FIRMWARE")) return false

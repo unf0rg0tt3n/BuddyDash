@@ -85,8 +85,33 @@ class NfcActionsTest {
     }
 
     @Test
+    fun safeToPowerOff_success() {
+        assertTrue(isPrinterSafeToPowerOff(status("SUCCESS")))
+    }
+
+    @Test
     fun safeToPowerOff_failed() {
         assertTrue(isPrinterSafeToPowerOff(status("FAILED")))
+    }
+
+    @Test
+    fun safeToPowerOff_cancelled() {
+        assertTrue(isPrinterSafeToPowerOff(status("CANCELLED")))
+        assertTrue(isPrinterSafeToPowerOff(status("CANCEL")))
+    }
+
+    @Test
+    fun safeToPowerOff_stopped() {
+        assertTrue(isPrinterSafeToPowerOff(status("STOPPED")))
+        assertTrue(isPrinterSafeToPowerOff(status("STOP")))
+    }
+
+    @Test
+    fun unsafeToPowerOff_unknownCustomState() {
+        // Unknown raw states must fail closed (not in allowlist)
+        assertFalse(isPrinterSafeToPowerOff(status("UNKNOWN_BUSY_ACTION")))
+        assertFalse(isPrinterSafeToPowerOff(status("CUSTOM_PRINTING")))
+        assertFalse(isPrinterSafeToPowerOff(status("RESUMING")))
     }
 
     @Test
