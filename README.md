@@ -230,13 +230,56 @@ Only BuddyDash action links are written to tags.
 
 ### Beta APK
 
-Download the latest APK from Releases.
+Download the latest APK from [Releases](https://github.com/unf0rg0tt3n/BuddyDash/releases).
 
-1. Download APK
-2. Install on Android
+1. Download the `BuddyDash-*.apk` file
+2. Install it on your Android device
 3. Open BuddyDash
-4. Add your Bambuddy server URL + API key
-5. Printers populate automatically
+4. Configure your Bambuddy server URL and API key
+5. Printers and spools populate automatically
+
+---
+
+## Releases & Automated Builds
+
+BuddyDash includes a GitHub Actions CI/CD workflow that automatically builds, tests, and packages APKs.
+
+### How Versioning Works
+The app version is dynamically resolved during Gradle builds:
+* `versionName`: The public version string shown in Settings (e.g. `0.9.1`, `1.0.0`, or `0.9.0-beta+<run>.<sha>`).
+* `versionCode`: An integer incremented automatically based on git commit depth to ensure clean Android package upgrades.
+
+### Creating a New Release (via Git Tag)
+To publish a new official version and release APK:
+```bash
+# 1. Create a semantic version tag (prefixed with 'v')
+git tag v0.9.1
+
+# 2. Push the tag to GitHub
+git push origin v0.9.1
+```
+GitHub Actions will automatically:
+1. Run all unit tests (`./gradlew testDebugUnitTest`).
+2. Build the APK with version `0.9.1`.
+3. Create a GitHub Release titled **BuddyDash v0.9.1** with automatic release notes.
+4. Attach `BuddyDash-0.9.1.apk` as a downloadable asset.
+
+### Building On-Demand (Manual Trigger)
+You can trigger a build anytime without creating a git tag:
+1. Go to **Actions** → **Build Android APK** in your GitHub repository.
+2. Click **Run workflow**.
+3. *(Optional)* Enter a custom version name (e.g. `0.9.2-test`) or custom version code.
+4. Download the resulting APK from the workflow run's **Artifacts** section.
+
+### Local Development Builds
+To build and test the APK locally:
+```bash
+# Run unit tests
+./gradlew testDebugUnitTest
+
+# Assemble debug APK with custom version
+./gradlew assembleDebug -PversionName="0.9.1" -PversionCode="2"
+```
 
 ---
 
