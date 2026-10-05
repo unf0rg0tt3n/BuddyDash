@@ -396,6 +396,10 @@ class PrinterDetailViewModel(
         }
         if (fromUser && !fromPull && manualRefreshGuard.shouldSkipManualRefresh()) return
         if (fromUser && fetchJob?.isActive == true) return
+        if (!fromUser && !fromPull && fetchJob?.isActive == true) {
+            // Background polling: keep the in-flight request running instead of cancelling it every tick
+            return
+        }
 
         val hasCachedData = state.status != null
         val isInitialLoad = !hasCachedData
