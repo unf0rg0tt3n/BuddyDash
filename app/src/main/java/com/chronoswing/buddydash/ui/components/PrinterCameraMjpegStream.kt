@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -13,20 +14,27 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.chronoswing.buddydash.ui.findActivity
 import kotlinx.coroutines.launch
 
 /**
  * Displays Bambuddy's multipart MJPEG stream (OpenAPI: GET …/camera/stream?token=&fps=).
- * Uses a [WebView] with an &lt;img&gt; tag, matching the Bambuddy web UI pattern.
+ * Uses a [WebView] with an <img> tag, matching the Bambuddy web UI pattern.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -37,10 +45,41 @@ fun PrinterCameraMjpegStream(
     onLoadingChanged: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
     LaunchedEffect(streamUrl) {
         onLoadingChanged(true)
+    }
+
+    DisposableEffect(lifecycleOwner, webViewRef) {
+        val webView = webViewRef
+        if (webView == null) {
+            onDispose { }
+        } else {
+            val observer = LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                        runCatching {
+                            webView.onPause()
+                            webView.pauseTimers()
+                        }
+                    }
+                    Lifecycle.Event.ON_RESUME -> {
+                        runCatching {
+                            webView.onResume()
+                            webView.resumeTimers()
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+            }
+        }
     }
 
     Box(
@@ -53,6 +92,7 @@ fun PrinterCameraMjpegStream(
                     val webContext = context.findActivity() ?: context
                     try {
                         WebView(webContext).apply {
+                            webViewRef = this
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -73,7 +113,18 @@ fun PrinterCameraMjpegStream(
                                     request: WebResourceRequest?,
                                     error: WebResourceError?,
                                 ) {
-                                    if (request?.isForMainFrame == true) {
+                                    view?.post {
+                                        scope.launch { onStreamFailed() }
+                                    }
+                                }
+
+                                override fun onReceivedHttpError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    errorResponse: WebResourceResponse?,
+                                ) {
+                                    val statusCode = errorResponse?.statusCode ?: 0
+                                    if (statusCode >= 400) {
                                         view?.post {
                                             scope.launch { onStreamFailed() }
                                         }
@@ -97,6 +148,9 @@ fun PrinterCameraMjpegStream(
                 onRelease = { view ->
                     runCatching {
                         if (view is WebView) {
+                            if (webViewRef == view) {
+                                webViewRef = null
+                            }
                             view.stopLoading()
                             view.loadUrl("about:blank")
                             (view.parent as? ViewGroup)?.removeView(view)
