@@ -68,6 +68,13 @@ class DeepLinkActionActivity : ComponentActivity() {
             return
         }
 
+        if (!isAuthorizedNfcOrInternalIntent(intent, packageName)) {
+            Log.w(TAG, "Rejecting unauthorized external action link from untrusted source: $uri")
+            showToast(getString(R.string.nfc_untrusted_source))
+            finish()
+            return
+        }
+
         lifecycleScope.launch {
             val outcome = executor.execute(uri)
             if (BuildConfig.DEBUG) {
@@ -136,5 +143,49 @@ class DeepLinkActionActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "BuddyDash/NfcDispatch"
+        const val EXTRA_INTERNAL_ACTION = "com.chronoswing.buddydash.extra.INTERNAL_ACTION"
     }
+}
+
+/**
+ * Validates that an incoming action link originated from genuine physical NFC hardware
+ * (NDEF discovery / NFC extras) or from BuddyDash's own internal UI.
+ * Untrusted third-party apps and web browsers cannot silently execute headless actions.
+ */
+data class ActionIntentSource(
+    val action: String? = null,
+    val hasNfcExtra: Boolean = false,
+    val isInternalFlag: Boolean = false,
+    val packageName: String? = null,
+)
+
+fun isAuthorizedActionIntentSource(source: ActionIntentSource, expectedPackageName: String): Boolean {
+    if (source.action == NfcAdapter.ACTION_NDEF_DISCOVERED ||
+        source.action == NfcAdapter.ACTION_TECH_DISCOVERED ||
+        source.action == NfcAdapter.ACTION_TAG_DISCOVERED ||
+        source.hasNfcExtra
+    ) {
+        return true
+    }
+    if (source.isInternalFlag && (source.packageName == null || source.packageName == expectedPackageName)) {
+        return true
+    }
+    return false
+}
+
+fun isAuthorizedNfcOrInternalIntent(intent: Intent?, myPackageName: String): Boolean {
+    if (intent == null) return false
+    @Suppress("DEPRECATION")
+    val hasNfcExtra = intent.hasExtra(NfcAdapter.EXTRA_NDEF_MESSAGES) || intent.hasExtra(NfcAdapter.EXTRA_TAG)
+    val isInternal = intent.getBooleanExtra(DeepLinkActionActivity.EXTRA_INTERNAL_ACTION, false)
+    val pkg = intent.`package` ?: intent.component?.packageName
+    return isAuthorizedActionIntentSource(
+        source = ActionIntentSource(
+            action = intent.action,
+            hasNfcExtra = hasNfcExtra,
+            isInternalFlag = isInternal,
+            packageName = pkg,
+        ),
+        expectedPackageName = myPackageName,
+    )
 }

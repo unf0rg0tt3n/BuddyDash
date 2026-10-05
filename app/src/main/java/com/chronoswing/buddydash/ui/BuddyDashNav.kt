@@ -784,8 +784,11 @@ private fun handleHomeQuickAction(
 
 private fun launchNfcDeepLink(context: Context, printerId: Int, action: String) {
     val uri = Uri.parse("buddydash://printer/$printerId/$action")
-    val intent = Intent(Intent.ACTION_VIEW, uri, context, DeepLinkActionActivity::class.java)
-    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    val intent = Intent(Intent.ACTION_VIEW, uri, context, DeepLinkActionActivity::class.java).apply {
+        putExtra(DeepLinkActionActivity.EXTRA_INTERNAL_ACTION, true)
+        `package` = context.packageName
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
     context.startActivity(intent)
 }
 
