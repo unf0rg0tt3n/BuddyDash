@@ -413,47 +413,69 @@ class PrinterDetailViewModel(
             }
 
             try {
-                val statusResult = supervisorScope {
-                    val statusDeferred = async {
-                        apiClient.fetchPrinterStatus(state.serverUrl, state.apiKey, printerId)
-                    }
-                    val maintenanceDeferred = async {
-                        runCatching {
-                            apiClient.fetchMaintenance(state.serverUrl, state.apiKey, printerId)
-                                .getOrNull()
-                        }.getOrNull()
-                    }
-                    val queueDeferred = async {
-                        runCatching {
-                            apiClient.fetchPrinterQueueSnapshot(state.serverUrl, state.apiKey, printerId)
-                                .getOrNull()
-                                ?: PrinterQueueSnapshot()
-                        }.getOrElse { PrinterQueueSnapshot() }
-                    }
-                    val machineInfoDeferred = async {
-                        runCatching {
-                            apiClient.fetchPrinterMachineInfo(state.serverUrl, state.apiKey, printerId)
-                                .getOrNull()
-                        }.getOrNull()
-                    }
-                    val smartPlugDeferred = async {
-                        runCatching {
-                            apiClient.fetchPrinterSmartPlugState(state.serverUrl, state.apiKey, printerId)
-                                .getOrNull()
-                        }.getOrNull()
-                    }
-                    StatusFetchBundle(
-                        status = statusDeferred.await(),
-                        maintenance = maintenanceDeferred.await(),
-                        queue = queueDeferred.await(),
-                        machineInfo = machineInfoDeferred.await(),
-                        smartPlugState = smartPlugDeferred.await(),
-                    )
-                }
+                // Fetch primary status telemetry
+                val statusResult = apiClient.fetchPrinterStatus(state.serverUrl, state.apiKey, printerId)
 
-                statusResult.status.fold(
+                statusResult.fold(
                     onSuccess = { status ->
-                        applyStatusFetchResult(status, statusResult)
+                        val updatedAt = System.currentTimeMillis()
+                        // Stage 1: Render primary telemetry immediately
+                        _uiState.update { current ->
+                            current.copy(
+                                isLoading = false,
+                                isRefreshing = false,
+                                status = status,
+                                startNextQueuedPrintReadiness = evaluateStartNextQueuedPrintReadiness(
+                                    status = status,
+                                    queuedItemCount = current.queueUpcoming.size,
+                                ),
+                                error = null,
+                                refreshError = null,
+                                isStaleCachedData = false,
+                                isLimitedFromHomeCache = false,
+                                hasCompletedLoad = true,
+                                lastStatusUpdatedAtMillis = updatedAt,
+                                hasAttemptedNetworkLoad = true,
+                            )
+                        }
+
+                        // Stage 2: Fetch auxiliary metadata in parallel
+                        val bundle = supervisorScope {
+                            val maintenanceDeferred = async {
+                                runCatching {
+                                    apiClient.fetchMaintenance(state.serverUrl, state.apiKey, printerId)
+                                        .getOrNull()
+                                }.getOrNull()
+                            }
+                            val queueDeferred = async {
+                                runCatching {
+                                    apiClient.fetchPrinterQueueSnapshot(state.serverUrl, state.apiKey, printerId)
+                                        .getOrNull()
+                                        ?: PrinterQueueSnapshot()
+                                }.getOrElse { PrinterQueueSnapshot() }
+                            }
+                            val machineInfoDeferred = async {
+                                runCatching {
+                                    apiClient.fetchPrinterMachineInfo(state.serverUrl, state.apiKey, printerId)
+                                        .getOrNull()
+                                }.getOrNull()
+                            }
+                            val smartPlugDeferred = async {
+                                runCatching {
+                                    apiClient.fetchPrinterSmartPlugState(state.serverUrl, state.apiKey, printerId)
+                                        .getOrNull()
+                                }.getOrNull()
+                            }
+                            StatusFetchBundle(
+                                status = statusResult,
+                                maintenance = maintenanceDeferred.await(),
+                                queue = queueDeferred.await(),
+                                machineInfo = machineInfoDeferred.await(),
+                                smartPlugState = smartPlugDeferred.await(),
+                            )
+                        }
+
+                        applyStatusFetchResult(status, bundle)
                     },
                     onFailure = { error ->
                         handleLoadStatusFailure(error)
