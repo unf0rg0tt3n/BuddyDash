@@ -57,10 +57,31 @@ suspend fun toggleSmartPlugPower(
             },
         )
     } else {
-        val status = printer.liveStatus
-            ?: apiClient.fetchPrinterStatus(serverUrl, apiKey, printer.id).getOrNull()
-        if (!isPrinterSafeToPowerOff(status) && !forceUnsafePowerOff) {
-            return SmartPlugToggleResult(NfcActionOutcome.PrinterBusyPowerUnchanged, plugState)
+        // Turning OFF:
+        // When not forcing unsafe power off, we MUST fetch fresh status from network to verify
+        val liveStatusResult = apiClient.fetchPrinterStatus(serverUrl, apiKey, printer.id)
+        val liveStatus = liveStatusResult.getOrNull()
+
+        if (!forceUnsafePowerOff) {
+            if (liveStatus == null) {
+                // If we cannot verify live status from network, fail closed unless forced
+                val cached = printer.liveStatus
+                if (cached != null && !isPrinterSafeToPowerOff(cached)) {
+                    return SmartPlugToggleResult(NfcActionOutcome.PrinterBusyPowerUnchanged, plugState)
+                }
+                val error = liveStatusResult.exceptionOrNull()
+                return SmartPlugToggleResult(
+                    outcome = if (error != null) mapToggleFailure(error) else NfcActionOutcome.ConnectionRequired,
+                    updatedPlugState = plugState,
+                )
+            }
+            if (!isPrinterSafeToPowerOff(liveStatus)) {
+                return SmartPlugToggleResult(
+                    outcome = NfcActionOutcome.PrinterBusyPowerUnchanged,
+                    updatedPlugState = plugState,
+                    updatedLiveStatus = liveStatus,
+                )
+            }
         }
         apiClient.controlSmartPlug(serverUrl, apiKey, plugId, action = "off").fold(
             onSuccess = {
@@ -70,12 +91,12 @@ suspend fun toggleSmartPlugPower(
                         ?: plugState.copy(
                             config = plugState.config.copy(lastState = "off"),
                         ),
-                    updatedLiveStatus = apiClient.fetchPrinterStatus(serverUrl, apiKey, printer.id)
+                    updatedLiveStatus = liveStatus ?: apiClient.fetchPrinterStatus(serverUrl, apiKey, printer.id)
                         .getOrNull(),
                 )
             },
             onFailure = { error ->
-                SmartPlugToggleResult(mapToggleFailure(error), plugState)
+                SmartPlugToggleResult(mapToggleFailure(error), plugState, liveStatus)
             },
         )
     }
