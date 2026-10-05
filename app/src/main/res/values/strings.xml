@@ -194,6 +194,7 @@
     <string name="nfc_printer_not_found">Printer not found</string>
     <string name="nfc_action_failed">Action failed</string>
     <string name="nfc_invalid_link">Invalid BuddyDash link</string>
+    <string name="nfc_untrusted_source">Action blocked from unverified source</string>
     <string name="nfc_power_on">Power on · %1$s</string>
     <string name="nfc_power_off">Power off · %1$s</string>
     <string name="nfc_printer_busy_power">Printer busy · power unchanged</string>
