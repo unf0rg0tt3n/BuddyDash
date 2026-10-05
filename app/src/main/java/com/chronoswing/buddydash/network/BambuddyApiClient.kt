@@ -88,6 +88,7 @@ import com.chronoswing.buddydash.util.logPrinterEnrichFailure
 import com.chronoswing.buddydash.util.parseDegradedPrinterStatus
 import com.chronoswing.buddydash.util.withEnrichFallback
 import com.chronoswing.buddydash.util.optSafeInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -132,17 +133,21 @@ class BambuddyApiClient {
             val baseUrl = normalizeBambuddyBaseUrl(serverUrl) ?: return@withContext Result.failure(
                 IllegalArgumentException("Server URL is required"),
             )
-            runCatching {
-                client.newCall(
-                    Request.Builder().url("$baseUrl/health").get().build(),
-                ).execute().use { response ->
+            val call = client.newCall(Request.Builder().url("$baseUrl/health").get().build())
+            try {
+                call.execute().use { response ->
                     val body = response.body?.string().orEmpty()
                     if (!response.isSuccessful) {
                         throw Exception("Server returned ${response.code}")
                     }
                     val status = JSONObject(body).optString("status", "healthy")
-                    "Server healthy — $status"
+                    Result.success("Server healthy — $status")
                 }
+            } catch (c: CancellationException) {
+                call.cancel()
+                throw c
+            } catch (e: Exception) {
+                Result.failure(e)
             }
         }
 
@@ -350,24 +355,27 @@ class BambuddyApiClient {
             else -> requestBuilder.get().build()
         }
 
-        val result = runCatching {
-            client.newCall(request).execute().use { response ->
+        val call = client.newCall(request)
+        return try {
+            call.execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     val detail = runCatching { JSONObject(body).optString("detail") }
                         .getOrNull()
                         ?.takeIf { it.isNotBlank() }
-                    throw Exception(
-                        detail ?: "Server returned ${response.code}",
+                    Result.failure(
+                        Exception(detail ?: "Server returned ${response.code}"),
                     )
+                } else {
+                    Result.success(parse(body))
                 }
-                parse(body)
             }
+        } catch (e: CancellationException) {
+            call.cancel()
+            throw e
+        } catch (e: Exception) {
+            Result.failure(Exception(e.toUserNetworkMessage("Request failed")))
         }
-        return result.fold(
-            onSuccess = { Result.success(it) },
-            onFailure = { Result.failure(Exception(it.toUserNetworkMessage("Request failed"))) },
-        )
     }
 
     /** Config row from GET /api/v1/printers — no live connection/state fields. */
@@ -918,31 +926,34 @@ class BambuddyApiClient {
         if (trimmedKey.isEmpty()) {
             return Result.failure(IllegalArgumentException("API key is required"))
         }
-        return runCatching {
-            client.newCall(
-                Request.Builder()
-                    .url("$baseUrl$path")
-                    .header("X-API-Key", trimmedKey)
-                    .get()
-                    .build(),
-            ).execute().use { response ->
+        val call = client.newCall(
+            Request.Builder()
+                .url("$baseUrl$path")
+                .header("X-API-Key", trimmedKey)
+                .get()
+                .build(),
+        )
+        return try {
+            call.execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 when {
-                    response.code == 404 -> null
+                    response.code == 404 -> Result.success(null)
                     !response.isSuccessful -> {
                         val detail = runCatching { JSONObject(body).optString("detail") }
                             .getOrNull()
                             ?.takeIf { it.isNotBlank() }
-                        throw Exception(detail ?: "Server returned ${response.code}")
+                        Result.failure(Exception(detail ?: "Server returned ${response.code}"))
                     }
-                    body.isBlank() || body == "null" -> null
-                    else -> parse(body)
+                    body.isBlank() || body == "null" -> Result.success(null)
+                    else -> Result.success(parse(body))
                 }
             }
-        }.fold(
-            onSuccess = { Result.success(it) },
-            onFailure = { Result.failure(Exception(it.toUserNetworkMessage("Request failed"))) },
-        )
+        } catch (c: CancellationException) {
+            call.cancel()
+            throw c
+        } catch (e: Exception) {
+            Result.failure(Exception(e.toUserNetworkMessage("Request failed")))
+        }
     }
 
     private fun parseSmartPlugConfig(json: JSONObject): SmartPlugConfig =
