@@ -8,6 +8,7 @@ import com.chronoswing.buddydash.data.HomePrintersCacheRepository
 import com.chronoswing.buddydash.data.SettingsRepository
 import com.chronoswing.buddydash.data.model.PrintArchive
 import com.chronoswing.buddydash.network.BambuddyApiClient
+import com.chronoswing.buddydash.util.ARCHIVES_LIST_DEFAULT_LIMIT
 import com.chronoswing.buddydash.util.ArchivePrinterFilter
 import com.chronoswing.buddydash.util.ArchiveResultFilter
 import com.chronoswing.buddydash.util.ArchiveStatsSnapshot
@@ -40,6 +41,8 @@ data class ArchivesUiState(
     val archives: List<PrintArchive> = emptyList(),
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    val hasMorePages: Boolean = true,
     val error: String? = null,
     val refreshError: String? = null,
     val isStaleCachedData: Boolean = false,
@@ -346,6 +349,7 @@ class ArchivesViewModel(
                             isLoading = false,
                             isRefreshing = false,
                             archives = archives,
+                            hasMorePages = archives.size >= ARCHIVES_LIST_DEFAULT_LIMIT,
                             error = null,
                             refreshError = null,
                             isStaleCachedData = false,
@@ -386,6 +390,42 @@ class ArchivesViewModel(
                             )
                         }
                     }
+                },
+            )
+        }
+    }
+
+    fun loadMoreArchives() {
+        val state = _uiState.value
+        if (state.isLoading || state.isRefreshing || state.isLoadingMore || !state.hasMorePages) return
+        if (!state.hasCredentials || state.serverUrl.isBlank() || state.apiKey.isBlank()) return
+
+        val currentOffset = state.archives.size
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingMore = true) }
+            val result = apiClient.fetchArchives(
+                serverUrl = state.serverUrl,
+                apiKey = state.apiKey,
+                limit = 100,
+                offset = currentOffset,
+                printerId = state.printerFilter?.printerId,
+            )
+            result.fold(
+                onSuccess = { newArchives ->
+                    val existingIds = state.archives.map { it.id }.toSet()
+                    val distinctNew = newArchives.filter { it.id !in existingIds }
+                    val combined = (state.archives + distinctNew)
+                        .sortedByDescending { it.completedAtIso ?: it.startedAtIso.orEmpty() }
+                    _uiState.update {
+                        it.copy(
+                            isLoadingMore = false,
+                            archives = combined,
+                            hasMorePages = newArchives.size >= 100,
+                        )
+                    }
+                },
+                onFailure = {
+                    _uiState.update { it.copy(isLoadingMore = false) }
                 },
             )
         }
