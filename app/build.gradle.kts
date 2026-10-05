@@ -11,12 +11,20 @@ android {
         }
     }
 
+    val appVersionCode = (project.findProperty("versionCode") as? String
+        ?: System.getenv("VERSION_CODE")
+        ?: System.getenv("GITHUB_RUN_NUMBER"))?.toIntOrNull() ?: 1
+
+    val appVersionName = (project.findProperty("versionName") as? String
+        ?: System.getenv("VERSION_NAME")
+        ?: "0.9.0-beta")
+
     defaultConfig {
         applicationId = "com.chronoswing.buddydash"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.9.0-beta"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
