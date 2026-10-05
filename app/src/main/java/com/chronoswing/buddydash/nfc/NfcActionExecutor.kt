@@ -13,6 +13,9 @@ import com.chronoswing.buddydash.util.NfcActionDebounce
 import com.chronoswing.buddydash.util.NfcActionKind
 import com.chronoswing.buddydash.util.NfcActionOutcome
 import com.chronoswing.buddydash.util.NfcDeepLink
+import com.chronoswing.buddydash.util.FinishActionResult
+import com.chronoswing.buddydash.util.FinishWorkflowConfig
+import com.chronoswing.buddydash.util.evaluateFinishOutcome
 import com.chronoswing.buddydash.util.blocksNfcPlateClear
 import com.chronoswing.buddydash.util.isClearPlateAlreadyAcknowledged
 import com.chronoswing.buddydash.util.isPlateKnownCleared
@@ -119,39 +122,73 @@ class NfcActionExecutor(
         apiKey: String,
         printer: Printer,
     ): NfcActionOutcome {
+        val clearPlateEnabled = runCatching { settingsRepository.finishClearPlate.first() }.getOrDefault(true)
+        val powerOffEnabled = runCatching { settingsRepository.finishPowerOff.first() }.getOrDefault(true)
+
         val status = fetchStatusOrNull(serverUrl, apiKey, printer.id)
             ?: return NfcActionOutcome.ConnectionRequired
         if (!status.connected) return NfcActionOutcome.ConnectionRequired
         if (!isPrinterSafeToPowerOff(status)) return NfcActionOutcome.PrinterBusyFinishSkipped
 
-        if (!isPlateKnownCleared(status)) {
-            apiClient.clearPlate(serverUrl, apiKey, printer.id).onFailure { error ->
-                if (!isClearPlateAlreadyAcknowledged(error.message.orEmpty())) {
-                    logWarn("finish/clear-plate", printer.id, error)
-                }
+        var clearPlateResult = FinishActionResult.Skipped
+        if (clearPlateEnabled) {
+            if (isPlateKnownCleared(status)) {
+                clearPlateResult = FinishActionResult.AlreadyDone
+            } else {
+                val clearRes = apiClient.clearPlate(serverUrl, apiKey, printer.id)
+                clearPlateResult = clearRes.fold(
+                    onSuccess = { message ->
+                        if (isClearPlateAlreadyAcknowledged(message)) {
+                            FinishActionResult.AlreadyDone
+                        } else {
+                            FinishActionResult.Success
+                        }
+                    },
+                    onFailure = { error ->
+                        if (isClearPlateAlreadyAcknowledged(error.message.orEmpty())) {
+                            FinishActionResult.AlreadyDone
+                        } else {
+                            logWarn("finish/clear-plate", printer.id, error)
+                            FinishActionResult.Failed
+                        }
+                    },
+                )
             }
         }
 
-        val plugState = apiClient.fetchPrinterSmartPlugState(serverUrl, apiKey, printer.id)
-            .getOrNull()
-        val shouldPowerOff = plugState != null &&
-            plugState.displayPowerState == SmartOutletPowerState.On
+        var powerOffResult = FinishActionResult.Skipped
+        if (powerOffEnabled) {
+            val plugState = apiClient.fetchPrinterSmartPlugState(serverUrl, apiKey, printer.id)
+                .getOrNull()
+            val shouldPowerOff = plugState != null &&
+                plugState.displayPowerState == SmartOutletPowerState.On
 
-        if (shouldPowerOff) {
-            apiClient.controlSmartPlug(
-                serverUrl, apiKey, plugState!!.config.id, action = "off",
-            ).onFailure { error ->
-                logWarn("finish/power-off", printer.id, error)
+            if (shouldPowerOff) {
+                val powerRes = apiClient.controlSmartPlug(
+                    serverUrl, apiKey, plugState!!.config.id, action = "off",
+                )
+                powerOffResult = powerRes.fold(
+                    onSuccess = { FinishActionResult.Success },
+                    onFailure = { error ->
+                        logWarn("finish/power-off", printer.id, error)
+                        FinishActionResult.Failed
+                    },
+                )
+            } else if (plugState != null && plugState.displayPowerState == SmartOutletPowerState.Off) {
+                powerOffResult = FinishActionResult.AlreadyDone
             }
         }
 
         refreshCache(serverUrl, apiKey, printer)
 
-        return if (shouldPowerOff) {
-            NfcActionOutcome.FinishedWithPowerOff
-        } else {
-            NfcActionOutcome.FinishedPlateClear
-        }
+        return evaluateFinishOutcome(
+            clearPlateResult = clearPlateResult,
+            powerOffResult = powerOffResult,
+            config = FinishWorkflowConfig(
+                clearPlate = clearPlateEnabled,
+                powerOff = powerOffEnabled,
+            ),
+        )
     }
 
     // ── Shared helpers ─────────────────────────────────────────────

@@ -201,6 +201,7 @@
     <string name="nfc_outlet_state_unknown">Smart outlet state unknown</string>
     <string name="nfc_finished_power_off">Finished · plate clear + power off</string>
     <string name="nfc_finished_plate_clear">Finished · plate clear</string>
+    <string name="nfc_finished_power_off_only">Finished · power off</string>
     <string name="nfc_printer_busy_finish">Printer busy · finish skipped</string>
     <!-- NFC Settings card -->
     <string name="nfc_actions_title">NFC actions</string>
