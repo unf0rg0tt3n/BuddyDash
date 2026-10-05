@@ -49,9 +49,11 @@ fun SpoolUsageThumbnail(
         return
     }
 
+    val serverKeyHex = remember(serverUrl) { serverUrl.hashCode().toUInt().toString(16) }
+
     BuddyDashFadeInThumbnail(
         imageUrl = imageUrl,
-        cacheKey = archiveId?.let { "spool-usage-thumb-$it" },
+        cacheKey = archiveId?.let { "spool-usage-thumb-$serverKeyHex-$it" },
         modifier = modifier,
         size = size,
         shape = shape,

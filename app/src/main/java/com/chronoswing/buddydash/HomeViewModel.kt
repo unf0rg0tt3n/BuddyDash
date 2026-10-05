@@ -127,6 +127,12 @@ class HomeViewModel(
             }.collect { (url, key, cameraToken) ->
                 val hasCredentials = url.isNotBlank() && key.isNotBlank()
                 val hadCredentials = _uiState.value.hasCredentials
+                val previousUrl = _uiState.value.serverUrl
+                val previousKey = _uiState.value.apiKey
+                val isServerChanged = previousUrl.isNotBlank() && previousUrl != url
+                val isKeyChanged = previousKey.isNotBlank() && previousKey != key
+                val isCredentialChanged = isServerChanged || isKeyChanged
+
                 _uiState.update {
                     it.copy(
                         serverUrl = url,
@@ -140,9 +146,14 @@ class HomeViewModel(
                     HomeLoadTiming.log("settings loaded")
                     val serverKey = HomePrintersCacheRepository.cacheServerKey(url)
                     val shouldNetworkLoad =
-                        !hadCredentials || lastNetworkLoadServerKey != serverKey
+                        !hadCredentials || isCredentialChanged || lastNetworkLoadServerKey != serverKey
                     viewModelScope.launch {
-                        hydrateFromDiskCache(url)
+                        if (isCredentialChanged) {
+                            listFetchJob?.cancel()
+                            enrichJob?.cancel()
+                            spoolCountJob?.cancel()
+                        }
+                        hydrateFromDiskCache(url, serverChanged = isServerChanged)
                         hydrateSpoolCountFromDiskCache(url)
                         if (shouldNetworkLoad && serverKey != null) {
                             lastNetworkLoadServerKey = serverKey
@@ -153,7 +164,7 @@ class HomeViewModel(
                     lastNetworkLoadServerKey = null
                     viewModelScope.launch {
                         if (url.isNotBlank()) {
-                            hydrateFromDiskCache(url)
+                            hydrateFromDiskCache(url, serverChanged = isServerChanged)
                             hydrateSpoolCountFromDiskCache(url)
                         }
                         _uiState.update {
@@ -217,15 +228,13 @@ class HomeViewModel(
         val debugShowLogoGlowBounds: Boolean,
     )
 
-    private suspend fun hydrateFromDiskCache(serverUrl: String) {
+    private suspend fun hydrateFromDiskCache(serverUrl: String, serverChanged: Boolean = false) {
         val snapshot = homePrintersCacheRepository.load(serverUrl)
-        val newKey = HomePrintersCacheRepository.cacheServerKey(serverUrl)
-        val currentKey = HomePrintersCacheRepository.cacheServerKey(_uiState.value.serverUrl)
         if (BuddyDashDebug.enabled) {
             Log.d(
                 TAG_HOME_VM,
                 "HomeVM: cache loaded=${snapshot != null} count=${snapshot?.printers?.size ?: 0} " +
-                    "lastUpdatedAtMillis=${snapshot?.lastUpdatedAtMillis}",
+                    "lastUpdatedAtMillis=${snapshot?.lastUpdatedAtMillis} serverChanged=$serverChanged",
             )
         }
         _uiState.update { state ->
@@ -242,7 +251,7 @@ class HomeViewModel(
                         isStaleCachedData = true,
                     )
                 }
-                newKey != null && currentKey != null && newKey != currentKey -> {
+                serverChanged -> {
                     state.copy(
                         printers = emptyList(),
                         lastUpdatedAtMillis = null,

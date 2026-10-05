@@ -56,9 +56,11 @@ fun ArchiveThumbnail(
 
     if (!showImage || imageUrl == null) return
 
+    val serverKeyHex = remember(serverUrl) { serverUrl.hashCode().toUInt().toString(16) }
+
     BuddyDashFadeInThumbnail(
         imageUrl = imageUrl,
-        cacheKey = "archive-thumb-$archiveId",
+        cacheKey = "archive-thumb-$serverKeyHex-$archiveId",
         modifier = modifier,
         size = size,
         shape = RoundedCornerShape(8.dp),

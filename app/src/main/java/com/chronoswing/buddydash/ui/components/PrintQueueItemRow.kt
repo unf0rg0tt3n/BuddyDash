@@ -50,9 +50,10 @@ fun PrintQueueItemRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (thumbUrl != null && showThumbnail) {
+            val serverKeyHex = remember(serverUrl) { serverUrl.hashCode().toUInt().toString(16) }
             BuddyDashFadeInThumbnail(
                 imageUrl = thumbUrl,
-                cacheKey = "queue-thumb-${job.id}-${thumbResult.source}",
+                cacheKey = "queue-thumb-$serverKeyHex-${job.id}-${thumbResult.source}",
                 size = 44.dp,
                 shape = RoundedCornerShape(8.dp),
                 onLoadFailed = { showThumbnail = false },
