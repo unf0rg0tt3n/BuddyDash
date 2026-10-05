@@ -1,41 +1,28 @@
 # ── BuddyDash ProGuard / R8 rules ────────────────────────────────────────────
 
-# Keep line numbers for meaningful crash stack traces
+# Keep line numbers and source files for readable crash stack traces
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
 
 # ── OkHttp ───────────────────────────────────────────────────────────────────
-# OkHttp platform detection uses reflection for optional dependencies
+# OkHttp platform detection uses reflection for optional platform providers
 -dontwarn okhttp3.internal.platform.**
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
 
-# ── Coil ─────────────────────────────────────────────────────────────────────
-# Coil relies on OkHttp; its consumer rules handle most cases.
-# Keep the public API entry points just in case.
--keep class coil.** { *; }
-
 # ── DataStore / Protobuf ─────────────────────────────────────────────────────
 # AndroidX DataStore Preferences uses protobuf-lite internally.
--keep class androidx.datastore.** { *; }
 -keepclassmembers class * extends com.google.protobuf.GeneratedMessageLite {
     <fields>;
 }
 
-# ── AndroidX Security Crypto ──────────────────────────────────────────────────
-# EncryptedSharedPreferences uses Android Keystore via reflection
--keep class androidx.security.crypto.** { *; }
--keep class com.google.crypto.tink.** { *; }
+# ── AndroidX Security Crypto / Tink ──────────────────────────────────────────
+# EncryptedSharedPreferences uses Tink keysets via reflection
+-keepclassmembers class * extends com.google.crypto.tink.Key {
+    <fields>;
+}
 -dontwarn com.google.crypto.tink.**
 
-# ── Kotlin ───────────────────────────────────────────────────────────────────
-# Keep Kotlin metadata for internal inline/reified functions
+# ── Kotlin / Annotations ─────────────────────────────────────────────────────
 -keepattributes *Annotation*, Signature, InnerClasses, EnclosingMethod
--keep class kotlin.Metadata { *; }
--dontwarn kotlin.**
-
-# ── Android / Compose ────────────────────────────────────────────────────────
-# Compose compiler plugin handles most R8 integration.
-# Keep Composable functions that may be referenced by navigation.
--keep @interface androidx.compose.runtime.Composable
